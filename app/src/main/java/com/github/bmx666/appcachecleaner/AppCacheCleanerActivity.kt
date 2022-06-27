@@ -21,6 +21,7 @@ import android.view.View
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.github.bmx666.appcachecleaner.databinding.ActivityMainBinding
 import com.github.bmx666.appcachecleaner.placeholder.PlaceholderContent
@@ -28,6 +29,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
+import java.text.DateFormat
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -277,6 +280,12 @@ class AppCacheCleanerActivity : AppCompatActivity() {
         cleanCacheInterrupt.set(false)
         cleanCacheFinished.set(false)
 
+        if (BuildConfig.DEBUG) {
+            val logFile = File(cacheDir.absolutePath + "/log.txt")
+            // force clean previous log
+            logFile.writeText("")
+        }
+
         for (i in pkgList.indices) {
             startApplicationDetailsActivity(pkgList[i])
             cleanAppCacheFinished.set(false)
@@ -312,6 +321,11 @@ class AppCacheCleanerActivity : AppCompatActivity() {
                 intent.putExtra(ARG_DISPLAY_TEXT, displayText)
                 startActivity(intent)
             }
+        }
+
+        if (BuildConfig.DEBUG) {
+            val logFile = File(cacheDir.absolutePath + "/log.txt")
+            shareLog(logFile)
         }
     }
 
@@ -513,6 +527,19 @@ class AppCacheCleanerActivity : AppCompatActivity() {
         intent.extras?.let {
             LocalBroadcastManager.getInstance(this)
                 .sendBroadcast(intent)
+        }
+    }
+
+    private fun shareLog(file: File) {
+        val authority = "${BuildConfig.APPLICATION_ID}.fileprovider"
+        FileProvider.getUriForFile(this, authority, file)?.let {
+            val shareIntent = Intent()
+                .setAction(Intent.ACTION_SEND)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .setDataAndType(it, contentResolver.getType(it))
+                .putExtra(Intent.EXTRA_STREAM, it)
+                .putExtra(Intent.EXTRA_TEXT, DateFormat.getDateTimeInstance().format(Date()))
+            startActivity(Intent.createChooser(shareIntent, "Share log to:"))
         }
     }
 
