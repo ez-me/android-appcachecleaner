@@ -6,8 +6,8 @@ import android.app.AppOpsManager
 import android.app.usage.StorageStats
 import android.app.usage.StorageStatsManager
 import android.content.ActivityNotFoundException
+import android.content.ContentValues
 import android.content.Context
-import android.content.DialogInterface
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
@@ -17,7 +17,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.ConditionVariable
 import android.os.Environment
+import android.os.FileUtils.copy
 import android.os.storage.StorageManager
+import android.provider.MediaStore
 import android.provider.Settings
 import android.text.TextUtils.SimpleStringSplitter
 import android.view.View
@@ -26,6 +28,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.github.bmx666.appcachecleaner.databinding.ActivityMainBinding
 import com.github.bmx666.appcachecleaner.placeholder.PlaceholderContent
@@ -33,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.io.File
 import java.text.DateFormat
 import java.util.*
@@ -344,10 +348,7 @@ class AppCacheCleanerActivity : AppCompatActivity() {
 
         if (BuildConfig.DEBUG) {
             val logFile = File(cacheDir.absolutePath + "/log.txt")
-            arrayOf(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)).forEach { dir ->
-                    dir?.let { logFile.copyTo(File(dir.absolutePath + "/appcachecleaner-log.txt"), true) }
-            }
+            saveLogOnExternalStorage(logFile)
             shareLog(logFile)
         }
     }
@@ -576,14 +577,44 @@ class AppCacheCleanerActivity : AppCompatActivity() {
 
     private fun shareLog(file: File) {
         val authority = "${BuildConfig.APPLICATION_ID}.fileprovider"
-        FileProvider.getUriForFile(this, authority, file)?.let {
+        FileProvider.getUriForFile(this, authority, file)?.let { uri ->
             val shareIntent = Intent()
                 .setAction(Intent.ACTION_SEND)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                .setDataAndType(it, contentResolver.getType(it))
-                .putExtra(Intent.EXTRA_STREAM, it)
+                .setDataAndType(uri, contentResolver.getType(uri))
+                .putExtra(Intent.EXTRA_STREAM, uri)
                 .putExtra(Intent.EXTRA_TEXT, DateFormat.getDateTimeInstance().format(Date()))
             startActivity(Intent.createChooser(shareIntent, "Share log to:"))
+        }
+    }
+
+    private fun saveLogOnExternalStorage(logFile: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "appcachecleaner-log")
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS)
+            }
+
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                contentResolver.delete(MediaStore.Files.getContentUri("external"),
+                    MediaStore.MediaColumns.DISPLAY_NAME + " LIKE 'appcachecleaner-log%'", null)
+            }
+
+            contentResolver.insert(MediaStore.Files.getContentUri("external"), contentValues)?.let {
+                try {
+                    contentResolver.openOutputStream(it)?.let { outputStream ->
+                        copy(logFile.inputStream(), outputStream)
+                        outputStream.flush()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        } else {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)?.let { dir ->
+                logFile.copyTo(File(dir.absolutePath + "/appcachecleaner-log.txt"), true)
+            }
         }
     }
 
