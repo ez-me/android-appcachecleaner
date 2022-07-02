@@ -349,7 +349,7 @@ class AppCacheCleanerActivity : AppCompatActivity() {
         if (BuildConfig.DEBUG) {
             val logFile = File(cacheDir.absolutePath + "/log.txt")
             saveLogOnExternalStorage(logFile)
-            shareLog(logFile)
+            // shareLog(logFile)
         }
     }
 
