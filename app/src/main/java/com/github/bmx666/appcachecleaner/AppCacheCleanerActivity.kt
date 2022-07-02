@@ -1,11 +1,13 @@
 package com.github.bmx666.appcachecleaner
 
+import android.Manifest
 import android.app.AlertDialog
 import android.app.AppOpsManager
 import android.app.usage.StorageStats
 import android.app.usage.StorageStatsManager
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.DialogInterface
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
@@ -14,12 +16,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.ConditionVariable
+import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.Settings
 import android.text.TextUtils.SimpleStringSplitter
 import android.view.View
 import android.widget.EditText
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -209,6 +213,17 @@ class AppCacheCleanerActivity : AppCompatActivity() {
             binding.textView.text = intent.getCharSequenceExtra(ARG_DISPLAY_TEXT)
     }
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) return@registerForActivityResult
+
+        Toast.makeText(this,
+            "Enable permission to write into external storage in Settings",
+            Toast.LENGTH_LONG).show()
+        startApplicationDetailsActivity(this.packageName)
+    }
+
     override fun onDestroy() {
         LocalBroadcastManager.getInstance(this)
             .sendBroadcast(Intent("disableSelf"))
@@ -222,9 +237,13 @@ class AppCacheCleanerActivity : AppCompatActivity() {
 
         val hasAccessibilityPermission = checkAccessibilityPermission()
         val hasUsageStatsPermission = checkUsageStatsPermission()
-        val hasAllPermissions = hasAccessibilityPermission and hasUsageStatsPermission
+        val hasWriteExternalStoragePermission = checkWriteExternalStoragePermission()
+        val hasAllPermissions = hasAccessibilityPermission and hasUsageStatsPermission and
+                hasWriteExternalStoragePermission
 
-        if (!hasAccessibilityPermission) {
+        if (!hasWriteExternalStoragePermission) {
+            requestWriteExternalStoragePermission()
+        } else if (!hasAccessibilityPermission) {
             Toast.makeText(this, getText(R.string.text_enable_accessibility_permission), Toast.LENGTH_SHORT).show()
             binding.textView.text = getText(R.string.text_enable_accessibility)
         } else if (!hasUsageStatsPermission) {
@@ -325,6 +344,10 @@ class AppCacheCleanerActivity : AppCompatActivity() {
 
         if (BuildConfig.DEBUG) {
             val logFile = File(cacheDir.absolutePath + "/log.txt")
+            arrayOf(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)).forEach { dir ->
+                    dir?.let { logFile.copyTo(File(dir.absolutePath + "/appcachecleaner-log.txt"), true) }
+            }
             shareLog(logFile)
         }
     }
@@ -380,6 +403,27 @@ class AppCacheCleanerActivity : AppCompatActivity() {
         }
 
         return false
+    }
+
+    private fun checkWriteExternalStoragePermission(): Boolean {
+        return hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    }
+
+    private fun requestWriteExternalStoragePermission() {
+        if (checkWriteExternalStoragePermission()) return
+
+        val alertDialogBuilder = AlertDialog.Builder(this)
+        alertDialogBuilder.setTitle("App is required write into external storage.")
+        alertDialogBuilder.setPositiveButton("OK") { _, _ ->
+            if (checkWriteExternalStoragePermission()) return@setPositiveButton
+            requestPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        alertDialogBuilder.create()
+        alertDialogBuilder.show()
+    }
+
+    private fun hasPermission(permission: String): Boolean {
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun getListInstalledUserApps(): ArrayList<PackageInfo> {

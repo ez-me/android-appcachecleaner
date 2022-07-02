@@ -19,6 +19,7 @@ import com.github.bmx666.appcachecleaner.util.lowercaseCompareText
 import com.github.bmx666.appcachecleaner.util.performClick
 import timber.log.Timber
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 
 class AppCacheCleanerService : AccessibilityService() {
@@ -185,6 +186,16 @@ class AppCacheCleanerService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (AppCacheCleanerActivity.cleanCacheFinished.get()) return
 
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            Timber.d("*** TREE TYPE_VIEW_CLICKED ***")
+            val nodeInfo = event.source ?: return
+            Timber.d("===>>> TREE TYPE_VIEW_CLICKED BEGIN <<<===")
+            showTree(0, nodeInfo)
+            Timber.d("===>>> TREE TYPE_VIEW_CLICKED END <<<===")
+            if (buttonClearCacheClicked.getAndSet(false))
+                goBack(windowNodeInfo)
+        }
+
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
             return
 
@@ -205,7 +216,12 @@ class AppCacheCleanerService : AccessibilityService() {
                 if (clearCacheButton.isEnabled) {
                     Timber.d("clean cache button is enabled")
                     when (clearCacheButton.performClick()) {
-                        true -> Timber.d("perform action click on clean cache button")
+                        true -> {
+                            Timber.d("perform action click on clean cache button")
+                            buttonClearCacheClicked.set(true)
+                            windowNodeInfo = nodeInfo
+                            return
+                        }
                         false -> Timber.e("no perform action click on clean cache button")
                         else -> Timber.e("not found clickable view for clean cache button")
                     }
@@ -256,5 +272,8 @@ class AppCacheCleanerService : AccessibilityService() {
 
         private var arrayTextClearCacheButton = ArrayList<CharSequence>()
         private var arrayTextStorageAndCacheMenu = ArrayList<CharSequence>()
+
+        private var buttonClearCacheClicked = AtomicBoolean(false)
+        private lateinit var windowNodeInfo: AccessibilityNodeInfo
     }
 }
